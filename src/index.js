@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
-var Promise = require('bluebird');
 var _ = require('lodash');
 var path = require('path');
 var childProcess = require('child_process');
 var phantomjs = require('phantomjs-prebuilt')
 var cliParser = require('./cli-parser');
+var base64Stream = require('base64-stream');
 
-function render(url, filePath, opts) {
+
+function render(url, opts) {
     opts = _.extend(cliParser.defaultOpts, opts);
 
     var args = [];
@@ -22,7 +23,6 @@ function render(url, filePath, opts) {
     args = args.concat([
         path.join(__dirname, 'url-to-image.js'),
         url,
-        filePath,
         opts.width,
         opts.height,
         opts.requestTimeout,
@@ -41,49 +41,51 @@ function render(url, filePath, opts) {
     };
 
     var killTimer;
-    return new Promise(function(resolve, reject) {
-        var child;
-        killTimer = setTimeout(function() {
-            killPhantom(opts, child)
-            reject(new Error('Phantomjs process timeout'));
-        }, opts.killTimeout);
+    var child;
+    var stream = base64Stream.decode();
 
-        try {
-            child = childProcess.spawn(phantomjs.path, args, {
-                stdio: 'inherit'
-            });
-        } catch (err) {
-            return Promise.reject(err);
-        }
+    killTimer = setTimeout(function() {
+        killPhantom(opts, child)
+        throw new Error('Phantomjs process timeout')
+    }, opts.killTimeout);
 
-        function errorHandler(err) {
-            // Remove bound handlers after use
-            child.removeListener('close', closeHandler);
-            reject(err);
-        }
+    // Ref: https://nodejs.org/api/child_process.html#child_process_options_stdio
+    child = childProcess.spawn(phantomjs.path, args);
+    child.stdout.pipe(stream);
+    child.stderr.pipe(process.stderr)
+    return stream
 
-        function closeHandler(exitCode) {
-            child.removeListener('error', errorHandler);
-            if (exitCode > 0) {
-                var err;
-                if (exitCode === 10) {
-                    err = new Error('Unable to load given url: ' + url);
-                }
-                reject(err);
-            } else {
-                resolve(exitCode);
+    function errorHandler(err) {
+        // Remove bound handlers after use
+        child.removeListener('close', closeHandler);
+        throw(err);
+    }
+
+    function closeHandler(exitCode) {
+        child.removeListener('error', errorHandler);
+        if (exitCode > 0) {
+            var err;
+            if (exitCode === 10) {
+                err = new Error('Unable to load given url: ' + url);
             }
+            throw(err);
+        } else {
+            return
         }
+    }
 
-        child.once('error', errorHandler);
-        child.once('close', closeHandler);
-    })
-    .finally(function() {
-        if (killTimer) {
-            clearTimeout(killTimer);
-        }
-    });
-};
+    child.once('error', errorHandler);
+    // child.once('disconnect', errorHandler);
+    // child.once('exit', errorHandler);
+    // child.once('message', errorHandler);
+    child.once('close', closeHandler);
+
+    // .finally(function() {
+    // if (killTimer) {
+    //     clearTimeout(killTimer);
+    // }
+    // });
+}
 
 function killPhantom(opts, child) {
     if (child) {
@@ -108,8 +110,9 @@ if (require.main === module) {
         throw err;
     }
 
-    render(opts.url, opts.path, opts)
-    .catch(function(err) {
+    try {
+        return render(opts.url, opts)
+    } catch(err) {
         console.error('\nTaking screenshot failed to error:');
         if (err && err.message) {
             console.error(err.message);
@@ -118,9 +121,8 @@ if (require.main === module) {
         } else {
             console.error('No error message available');
         }
-
-        process.exit(2);
-    });
+        process.exit(2);        
+    }
 }
 
 module.exports = render;

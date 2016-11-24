@@ -10,7 +10,7 @@ var defaultOpts = {
     maxTimeout: 1000 * 10,
     killTimeout: 1000 * 60 * 2,
     verbose: false,
-    fileType: false,
+    fileType: 'png',
     fileQuality: false,
     cropWidth: false,
     cropHeight: false,

@@ -5,6 +5,9 @@ var sizeOf = require('image-size');
 
 var urlToImage = require('../src/index');
 
+var phantomjs = require('phantomjs-prebuilt')
+
+
 describe('urlToImage', function() {
 
     var server = http.createServer(function(req, res) {
@@ -25,8 +28,9 @@ describe('urlToImage', function() {
         this.timeout(20000);
 
         it('should render test image', function(done) {
-            urlToImage('http://localhost:9000', 'localhost.png')
-            .then(function() {
+            urlToImage('http://gitlogs.com')
+            .pipe(fs.createWriteStream('localhost.png'))
+            .on('finish', function() {
                 var dimensions = sizeOf('localhost.png');
                 assert.equal(dimensions.width, 1280, 'default width is incorrect');
                 fs.unlinkSync('localhost.png');
@@ -36,13 +40,13 @@ describe('urlToImage', function() {
 
         it('should render image in custom size', function(done) {
             urlToImage(
-                'http://localhost:9000',
-                'localhost.png', {
+                'http://localhost:9000', {
                     width: 800,
                     height: 600
                 }
             )
-            .then(function() {
+            .pipe(fs.createWriteStream('localhost.png'))
+            .on('finish', function() {
                 var dimensions = sizeOf('localhost.png');
 
                 assert.equal(dimensions.width, 800, 'width is incorrect');
@@ -58,18 +62,31 @@ describe('urlToImage', function() {
         });
 
         it('should fail to incorrect url', function(done) {
-            this.timeout(3000);
+            this.timeout(10000);
 
-            urlToImage(
-                'http://failure',
-                'localhost.png', {
-                    width: 800,
-                    height: 600
-                }
-            )
-            .catch(function(err) {
+            // TODO phantom takes a really long time to setup and end, 2-4 seconds just to stream a failure
+            // NOTE: can try to keep a phantom process alive
+            try {
+                var stream = urlToImage(
+                  'http://failure', {
+                      width: 800,
+                      height: 600
+                  }
+                )
+
+                  stream.on('close', err => {
+                      console.log('closed')
+                      done()
+                  })
+                  stream.on('error', err => {
+                      console.error('ON ERR', err)
+                      done()
+                  })
+
+                stream.pipe(fs.createWriteStream('failure.png'))
+            } catch (err) {
                 done();
-            });
+            }
         });
     });
 });
